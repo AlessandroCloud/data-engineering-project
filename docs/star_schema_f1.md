@@ -15,7 +15,7 @@ interrogabile da dashboard e strumenti di BI.
 
 ---
 
-## Architettura generale dei layer
+# Architettura generale dei layer
 
 - **Bronze**  
   Contiene i dati grezzi così come arrivano dalle sorgenti CSV.
@@ -49,7 +49,7 @@ Le principali domande a cui il modello deve rispondere sono:
 
 ---
 
-## KPI principali supportati
+# KPI principali supportati
 
 Alcuni esempi di KPI che possono essere calcolati facilmente sul modello:
 
@@ -65,11 +65,11 @@ Alcuni esempi di KPI che possono essere calcolati facilmente sul modello:
 
 ---
 
-## Grain del modello
+# Grain del modello
 
 La decisione principale riguarda la granularità della fact table centrale.
 
-### Grain della fact principale
+# Grain della fact principale
 **1 riga = 1 pilota in 1 gara**
 
 Questa granularità consente di:
@@ -79,9 +79,9 @@ Questa granularità consente di:
 
 ---
 
-## Fact Tables
+# Fact Tables
 
-### fact_race_results (fact centrale)
+## fact_race_results (fact centrale)
 
 **Descrizione**  
 Contiene il risultato finale di ogni pilota in ogni gara.
@@ -112,7 +112,7 @@ Contiene il risultato finale di ogni pilota in ogni gara.
 
 ---
 
-### fact_qualifying
+## fact_qualifying
 
 **Grain**  
 1 pilota in 1 gara (fase di qualifica).
@@ -128,7 +128,7 @@ la posizione in griglia con il risultato finale in gara.
 
 ---
 
-### fact_pit_stops
+## fact_pit_stops
 
 **Grain**  
 1 riga = 1 pit stop.
@@ -143,7 +143,7 @@ e l’impatto dei pit stop sulle performance.
 
 ---
 
-### fact_lap_times
+## fact_lap_times
 
 **Grain**  
 1 riga = 1 giro completato da un pilota.
@@ -158,7 +158,7 @@ e l’impatto dei pit stop sulle performance.
 
 ---
 
-### fact_driver_standings
+## fact_driver_standings
 
 **Grain**  
 1 pilota dopo ogni gara.
@@ -172,7 +172,7 @@ Serve per analizzare l’evoluzione del campionato nel tempo.
 
 ---
 
-### fact_constructor_standings
+## fact_constructor_standings
 
 **Grain**  
 1 costruttore dopo ogni gara.
@@ -184,9 +184,9 @@ Serve per analizzare l’evoluzione del campionato nel tempo.
 
 ---
 
-## Dimension Tables
+# Dimension Tables
 
-### dim_driver
+## dim_driver
 
 **Descrizione**  
 Anagrafica dei piloti.
@@ -200,7 +200,7 @@ Anagrafica dei piloti.
 
 ---
 
-### dim_constructor
+## dim_constructor
 
 **Descrizione**  
 Anagrafica dei team/costruttori.
@@ -211,7 +211,7 @@ Anagrafica dei team/costruttori.
 
 ---
 
-### dim_race
+## dim_race
 
 **Descrizione**  
 Rappresenta l’evento gara.
@@ -225,7 +225,7 @@ Rappresenta l’evento gara.
 
 ---
 
-### dim_circuit
+## dim_circuit
 
 **Descrizione**  
 Informazioni geografiche sui circuiti.
@@ -238,7 +238,7 @@ Informazioni geografiche sui circuiti.
 
 ---
 
-### dim_date
+## dim_date
 
 **Descrizione**  
 Dimensione calendario.
@@ -256,14 +256,14 @@ per supportare analisi temporali corrette.
 
 ---
 
-### dim_status
+## dim_status
 
 **Descrizione**  
 Motivo di fine gara (Finished, Accident, Engine, ecc.).
 
 ---
 
-## Considerazioni finali
+# Considerazioni finali
 
 Lo star schema è stato progettato per:
 - essere facilmente estendibile
