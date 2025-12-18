@@ -275,4 +275,3 @@ permette di mantenere il modello pulito,
 versionabile e facilmente manutenibile.
 
 ---
-
