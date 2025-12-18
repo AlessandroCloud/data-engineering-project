@@ -5,7 +5,7 @@ from etl.utils import get_connection
 
 
 # -------------------------
-# SQL HELPERS (no '\N'!)
+# # SQL HELPERS (no NULL markers)
 # -------------------------
 
 def sql_time_to_ms(col: str) -> str:
@@ -15,7 +15,7 @@ def sql_time_to_ms(col: str) -> str:
       - "59.123"   -> millisecondi
       - NULL / ''  -> NULL
 
-    Nota: NON controlliamo mai '\N' per evitare problemi di escape Python.
+    Nota: NON controlliamo mai valori speciali testuali per evitare problemi di escape Python.
     Se arriva una stringa non parsabile, TRY_CAST/TRY_STRPTIME porteranno a NULL.
     """
     return f"""
