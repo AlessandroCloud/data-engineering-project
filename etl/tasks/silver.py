@@ -4,10 +4,6 @@ from prefect import task
 from etl.utils import get_connection
 
 
-# -------------------------
-# # SQL HELPERS (no NULL markers)
-# -------------------------
-
 def sql_time_to_ms(col: str) -> str:
     """
     Converte tempi tipo:
@@ -15,8 +11,6 @@ def sql_time_to_ms(col: str) -> str:
       - "59.123"   -> millisecondi
       - NULL / ''  -> NULL
 
-    Nota: NON controlliamo mai valori speciali testuali per evitare problemi di escape Python.
-    Se arriva una stringa non parsabile, TRY_CAST/TRY_STRPTIME porteranno a NULL.
     """
     return f"""
     CASE
@@ -83,9 +77,9 @@ def build_silver() -> dict:
     con = get_connection()
     con.execute("CREATE SCHEMA IF NOT EXISTS silver;")
 
-    # -------------------------
+    
     # DIMENSION-LIKE TABLES
-    # -------------------------
+    
 
     # drivers
     con.execute(
@@ -160,9 +154,9 @@ def build_silver() -> dict:
         """
     )
 
-    # -------------------------
+    
     # FACT-LIKE TABLES
-    # -------------------------
+    
 
     # results
     con.execute(
@@ -272,9 +266,9 @@ def build_silver() -> dict:
         """
     )
 
-    # -------------------------
-    # QUALITY CHECKS (minimi)
-    # -------------------------
+    
+    # QUALITY CHECKS 
+   
     checks = [
         ("silver.drivers", "driver_id"),
         ("silver.constructors", "constructor_id"),
@@ -290,9 +284,9 @@ def build_silver() -> dict:
             con.close()
             raise ValueError(f"[QUALITY FAIL] {table}.{key} ha {nulls} NULL")
 
-    # -------------------------
+    
     # SUMMARY
-    # -------------------------
+    
     summary: dict[str, int] = {}
     tables = con.execute(
         """
