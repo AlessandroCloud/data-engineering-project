@@ -4,71 +4,107 @@ from prefect import task
 from etl.utils import get_connection
 
 
-# ---- SQL helpers ----
-# Converte stringhe tipo "1:26.572" o "59.123" in millisecondi.
-# - Se c'è ":", interpreta come M:SS.mmm
-# - Se non c'è ":", interpreta come SS.mmm
-# - Se NULL / '' / '\N' -> NULL
+# -------------------------
+# SQL HELPERS (no '\N'!)
+# -------------------------
+
 def sql_time_to_ms(col: str) -> str:
+    """
+    Converte tempi tipo:
+      - "1:26.572" -> millisecondi
+      - "59.123"   -> millisecondi
+      - NULL / ''  -> NULL
+
+    Nota: NON controlliamo mai '\N' per evitare problemi di escape Python.
+    Se arriva una stringa non parsabile, TRY_CAST/TRY_STRPTIME porteranno a NULL.
+    """
     return f"""
     CASE
       WHEN {col} IS NULL THEN NULL
-      WHEN TRIM({col}) IN ('', '\\\\N') THEN NULL
-      WHEN INSTR({col}, ':') > 0 THEN
+      WHEN NULLIF(TRIM(CAST({col} AS VARCHAR)), '') IS NULL THEN NULL
+      WHEN INSTR(CAST({col} AS VARCHAR), ':') > 0 THEN
         (
-          TRY_CAST(SPLIT_PART({col}, ':', 1) AS INTEGER) * 60000
+          TRY_CAST(SPLIT_PART(CAST({col} AS VARCHAR), ':', 1) AS INTEGER) * 60000
           +
-          TRY_CAST(SPLIT_PART(SPLIT_PART({col}, ':', 2), '.', 1) AS INTEGER) * 1000
+          TRY_CAST(SPLIT_PART(SPLIT_PART(CAST({col} AS VARCHAR), ':', 2), '.', 1) AS INTEGER) * 1000
           +
-          TRY_CAST(RPAD(SPLIT_PART({col}, '.', 2), 3, '0') AS INTEGER)
+          TRY_CAST(RPAD(SPLIT_PART(CAST({col} AS VARCHAR), '.', 2), 3, '0') AS INTEGER)
         )
       ELSE
         (
-          TRY_CAST(SPLIT_PART({col}, '.', 1) AS INTEGER) * 1000
+          TRY_CAST(SPLIT_PART(CAST({col} AS VARCHAR), '.', 1) AS INTEGER) * 1000
           +
-          TRY_CAST(RPAD(SPLIT_PART({col}, '.', 2), 3, '0') AS INTEGER)
+          TRY_CAST(RPAD(SPLIT_PART(CAST({col} AS VARCHAR), '.', 2), 3, '0') AS INTEGER)
         )
     END
     """
 
 
+def sql_safe_date(col: str) -> str:
+    """
+    Parsing robusto date:
+    - se già DATE -> ok
+    - se NULL / '' -> NULL
+    - altrimenti prova YYYY-MM-DD, se non valido -> NULL
+    """
+    return f"""
+    CASE
+      WHEN {col} IS NULL THEN NULL
+      WHEN typeof({col}) = 'DATE' THEN {col}
+      ELSE TRY_STRPTIME(NULLIF(TRIM(CAST({col} AS VARCHAR)), ''), '%Y-%m-%d')::DATE
+    END
+    """
+
+
+def sql_clean_int(col: str) -> str:
+    """Converte a INTEGER in modo safe: NULL / '' -> NULL, altrimenti TRY_CAST."""
+    return f"TRY_CAST(NULLIF(TRIM(CAST({col} AS VARCHAR)), '') AS INTEGER)"
+
+
+def sql_clean_bigint(col: str) -> str:
+    """Converte a BIGINT in modo safe: NULL / '' -> NULL, altrimenti TRY_CAST."""
+    return f"TRY_CAST(NULLIF(TRIM(CAST({col} AS VARCHAR)), '') AS BIGINT)"
+
+
+def sql_clean_double(col: str) -> str:
+    """Converte a DOUBLE in modo safe: NULL / '' -> NULL, altrimenti TRY_CAST."""
+    return f"TRY_CAST(NULLIF(TRIM(CAST({col} AS VARCHAR)), '') AS DOUBLE)"
+
+
 @task(name="build_silver")
 def build_silver() -> dict:
     """
-    Crea il layer SILVER a partire dal BRONZE dentro DuckDB.
-    Silver = pulizia tecnica: tipi coerenti, naming coerente, gestione valori sporchi.
+    SILVER = pulizia tecnica del BRONZE:
+    - tipi coerenti
+    - naming coerente
+    - gestione valori sporchi
+    - NO KPI / NO aggregazioni / NO business logic
     """
     con = get_connection()
-
-    # Schema
     con.execute("CREATE SCHEMA IF NOT EXISTS silver;")
 
     # -------------------------
     # DIMENSION-LIKE TABLES
     # -------------------------
+
+    # drivers
     con.execute(
-    """
-    CREATE OR REPLACE TABLE silver.drivers AS
-    SELECT
-        driverId::INTEGER                       AS driver_id,
-        driverRef::VARCHAR                      AS driver_ref,
-        forename::VARCHAR                       AS forename,
-        surname::VARCHAR                        AS surname,
+        f"""
+        CREATE OR REPLACE TABLE silver.drivers AS
+        SELECT
+            driverId::INTEGER                            AS driver_id,
+            driverRef::VARCHAR                           AS driver_ref,
+            forename::VARCHAR                            AS forename,
+            surname::VARCHAR                             AS surname,
+            {sql_safe_date("dob")}                       AS dob,
+            nationality::VARCHAR                         AS nationality,
+            NULLIF(TRIM(CAST(code AS VARCHAR)), '')      AS code,
+            {sql_clean_int("number")}                    AS driver_number
+        FROM bronze.drivers;
+        """
+    )
 
-        CASE
-          WHEN dob IS NULL THEN NULL
-          WHEN TRIM(dob) IN ('', '\\N') THEN NULL
-          ELSE TRY_STRPTIME(dob, '%Y-%m-%d')::DATE
-        END AS dob,
-
-        nationality::VARCHAR                    AS nationality,
-        NULLIF(code, '')::VARCHAR               AS code,
-        TRY_CAST(NULLIF(number, '') AS INTEGER) AS driver_number
-    FROM bronze.drivers;
-    """
-)
-
-
+    # constructors
     con.execute(
         """
         CREATE OR REPLACE TABLE silver.constructors AS
@@ -81,6 +117,7 @@ def build_silver() -> dict:
         """
     )
 
+    # circuits
     con.execute(
         """
         CREATE OR REPLACE TABLE silver.circuits AS
@@ -97,20 +134,22 @@ def build_silver() -> dict:
         """
     )
 
+    # races
     con.execute(
-        """
+        f"""
         CREATE OR REPLACE TABLE silver.races AS
         SELECT
-            raceId::INTEGER                 AS race_id,
-            year::INTEGER                   AS season_year,
-            round::INTEGER                  AS round,
-            name::VARCHAR                   AS race_name,
-            TRY_CAST(NULLIF(date, '') AS DATE) AS race_date,
-            circuitId::INTEGER              AS circuit_id
+            raceId::INTEGER            AS race_id,
+            year::INTEGER              AS season_year,
+            round::INTEGER             AS round,
+            name::VARCHAR              AS race_name,
+            {sql_safe_date("date")}    AS race_date,
+            circuitId::INTEGER         AS circuit_id
         FROM bronze.races;
         """
     )
 
+    # status
     con.execute(
         """
         CREATE OR REPLACE TABLE silver.status AS
@@ -125,24 +164,24 @@ def build_silver() -> dict:
     # FACT-LIKE TABLES
     # -------------------------
 
-    # results (fact centrale futura)
+    # results
     con.execute(
-        """
+        f"""
         CREATE OR REPLACE TABLE silver.results AS
         SELECT
-            resultId::INTEGER                     AS result_id,
-            raceId::INTEGER                       AS race_id,
-            driverId::INTEGER                     AS driver_id,
-            constructorId::INTEGER                AS constructor_id,
-            statusId::INTEGER                     AS status_id,
+            resultId::INTEGER                  AS result_id,
+            raceId::INTEGER                    AS race_id,
+            driverId::INTEGER                  AS driver_id,
+            constructorId::INTEGER             AS constructor_id,
+            statusId::INTEGER                  AS status_id,
 
-            TRY_CAST(NULLIF(grid, '\\\\N') AS INTEGER)      AS grid,
-            TRY_CAST(NULLIF(position, '\\\\N') AS INTEGER)  AS position,
-            positionOrder::INTEGER                 AS position_order,
-            TRY_CAST(points AS DOUBLE)             AS points,
+            {sql_clean_int("grid")}            AS grid,
+            {sql_clean_int("position")}        AS position,
+            positionOrder::INTEGER             AS position_order,
+            TRY_CAST(points AS DOUBLE)         AS points,
 
-            TRY_CAST(NULLIF(laps, '\\\\N') AS INTEGER)      AS laps,
-            TRY_CAST(NULLIF(milliseconds, '\\\\N') AS BIGINT) AS milliseconds
+            {sql_clean_int("laps")}            AS laps,
+            {sql_clean_bigint("milliseconds")} AS milliseconds
         FROM bronze.results;
         """
     )
@@ -152,83 +191,83 @@ def build_silver() -> dict:
         f"""
         CREATE OR REPLACE TABLE silver.qualifying AS
         SELECT
-            qualifyId::INTEGER   AS qualify_id,
-            raceId::INTEGER      AS race_id,
-            driverId::INTEGER    AS driver_id,
-            constructorId::INTEGER AS constructor_id,
-            TRY_CAST(NULLIF(number, '') AS INTEGER) AS car_number,
-            TRY_CAST(NULLIF(position, '\\\\N') AS INTEGER) AS qualifying_position,
+            qualifyId::INTEGER          AS qualify_id,
+            raceId::INTEGER             AS race_id,
+            driverId::INTEGER           AS driver_id,
+            constructorId::INTEGER      AS constructor_id,
+            {sql_clean_int("number")}   AS car_number,
+            {sql_clean_int("position")} AS qualifying_position,
 
-            {sql_time_to_ms("q1")} AS q1_ms,
-            {sql_time_to_ms("q2")} AS q2_ms,
-            {sql_time_to_ms("q3")} AS q3_ms
+            {sql_time_to_ms("q1")}      AS q1_ms,
+            {sql_time_to_ms("q2")}      AS q2_ms,
+            {sql_time_to_ms("q3")}      AS q3_ms
         FROM bronze.qualifying;
         """
     )
 
-    # pit_stops (durata in secondi spesso come stringa "26.898")
+    # pit_stops
     con.execute(
-        """
+        f"""
         CREATE OR REPLACE TABLE silver.pit_stops AS
         SELECT
-            raceId::INTEGER                         AS race_id,
-            driverId::INTEGER                       AS driver_id,
-            TRY_CAST(NULLIF(stop, '\\N') AS INTEGER) AS stop_number,
-            TRY_CAST(NULLIF(lap, '\\N') AS INTEGER)  AS lap,
-            time::VARCHAR                           AS time_of_day,
+            raceId::INTEGER                 AS race_id,
+            driverId::INTEGER               AS driver_id,
+            {sql_clean_int("stop")}         AS stop_number,
+            {sql_clean_int("lap")}          AS lap,
+            CAST(time AS VARCHAR)           AS time_of_day,
 
-            -- duration è spesso in secondi con decimali -> ms
+            -- duration spesso è in secondi (stringa/numero) -> ms
             CASE
               WHEN duration IS NULL THEN NULL
-              WHEN TRIM(duration) IN ('', '\\N') THEN NULL
-              ELSE TRY_CAST(duration AS DOUBLE) * 1000
+              WHEN NULLIF(TRIM(CAST(duration AS VARCHAR)), '') IS NULL THEN NULL
+              ELSE {sql_clean_double("duration")} * 1000
             END AS pit_duration_ms
         FROM bronze.pit_stops;
         """
     )
 
-    # lap_times (tempo giro come "M:SS.mmm")
+    # lap_times
     con.execute(
         f"""
         CREATE OR REPLACE TABLE silver.lap_times AS
         SELECT
-            raceId::INTEGER                        AS race_id,
-            driverId::INTEGER                      AS driver_id,
-            TRY_CAST(NULLIF(lap, '\\\\N') AS INTEGER) AS lap_number,
-            TRY_CAST(NULLIF(position, '\\\\N') AS INTEGER) AS lap_position,
-            {sql_time_to_ms("time")}               AS lap_time_ms
+            raceId::INTEGER               AS race_id,
+            driverId::INTEGER             AS driver_id,
+            {sql_clean_int("lap")}        AS lap_number,
+            {sql_clean_int("position")}   AS lap_position,
+            {sql_time_to_ms("time")}      AS lap_time_ms
         FROM bronze.lap_times;
         """
     )
 
     # driver_standings
     con.execute(
-        """
+        f"""
         CREATE OR REPLACE TABLE silver.driver_standings AS
         SELECT
-            driverStandingsId::INTEGER AS driver_standings_id,
-            raceId::INTEGER            AS race_id,
-            driverId::INTEGER          AS driver_id,
-            TRY_CAST(points AS DOUBLE) AS championship_points,
-            TRY_CAST(position AS INTEGER) AS championship_position,
-            positionText::VARCHAR      AS position_text,
-            TRY_CAST(wins AS INTEGER)  AS wins_to_date
+            driverStandingsId::INTEGER          AS driver_standings_id,
+            raceId::INTEGER                     AS race_id,
+            driverId::INTEGER                   AS driver_id,
+            {sql_clean_double("points")}        AS championship_points,
+            {sql_clean_int("position")}         AS championship_position,
+            positionText::VARCHAR               AS position_text,
+            {sql_clean_int("wins")}             AS wins_to_date
         FROM bronze.driver_standings;
         """
     )
 
     # constructor_standings
     con.execute(
-        """
+        f"""
         CREATE OR REPLACE TABLE silver.constructor_standings AS
         SELECT
-            constructorStandingsId::INTEGER AS constructor_standings_id,
-            raceId::INTEGER                 AS race_id,
-            constructorId::INTEGER          AS constructor_id,
-            TRY_CAST(points AS DOUBLE)      AS championship_points,
-            TRY_CAST(position AS INTEGER)   AS championship_position,
-            positionText::VARCHAR           AS position_text,
-            TRY_CAST(wins AS INTEGER)       AS wins_to_date
+            constructorStandingsId::INTEGER     AS constructor_standings_id,
+            raceId::INTEGER                     AS race_id,
+            constructorId::INTEGER              AS constructor_id,
+            {sql_clean_double("points")}        AS championship_points,
+            {sql_clean_int("position")}         AS championship_position,
+            positionText::VARCHAR               AS position_text,
+            {sql_clean_int("wins")}             AS wins_to_date
         FROM bronze.constructor_standings;
         """
     )
@@ -244,15 +283,18 @@ def build_silver() -> dict:
         ("silver.status", "status_id"),
         ("silver.results", "result_id"),
     ]
+
     for table, key in checks:
         nulls = con.execute(f"SELECT COUNT(*) FROM {table} WHERE {key} IS NULL").fetchone()[0]
         if nulls != 0:
             con.close()
             raise ValueError(f"[QUALITY FAIL] {table}.{key} ha {nulls} NULL")
 
-    # piccolo report tabelle/righe
-    summary = {}
-    silver_tables = con.execute(
+    # -------------------------
+    # SUMMARY
+    # -------------------------
+    summary: dict[str, int] = {}
+    tables = con.execute(
         """
         SELECT table_name
         FROM information_schema.tables
@@ -261,7 +303,7 @@ def build_silver() -> dict:
         """
     ).fetchall()
 
-    for (tname,) in silver_tables:
+    for (tname,) in tables:
         cnt = con.execute(f"SELECT COUNT(*) FROM silver.{tname}").fetchone()[0]
         summary[f"silver.{tname}"] = int(cnt)
 
