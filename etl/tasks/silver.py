@@ -47,20 +47,27 @@ def build_silver() -> dict:
     # DIMENSION-LIKE TABLES
     # -------------------------
     con.execute(
-        """
-        CREATE OR REPLACE TABLE silver.drivers AS
-        SELECT
-            driverId::INTEGER                      AS driver_id,
-            driverRef::VARCHAR                     AS driver_ref,
-            forename::VARCHAR                      AS forename,
-            surname::VARCHAR                       AS surname,
-            TRY_CAST(NULLIF(dob, '') AS DATE)      AS dob,
-            nationality::VARCHAR                   AS nationality,
-            NULLIF(code, '')::VARCHAR              AS code,
-            TRY_CAST(NULLIF(number, '') AS INTEGER) AS driver_number
-        FROM bronze.drivers;
-        """
-    )
+    """
+    CREATE OR REPLACE TABLE silver.drivers AS
+    SELECT
+        driverId::INTEGER                       AS driver_id,
+        driverRef::VARCHAR                      AS driver_ref,
+        forename::VARCHAR                       AS forename,
+        surname::VARCHAR                        AS surname,
+
+        CASE
+          WHEN dob IS NULL THEN NULL
+          WHEN TRIM(dob) IN ('', '\\N') THEN NULL
+          ELSE TRY_STRPTIME(dob, '%Y-%m-%d')::DATE
+        END AS dob,
+
+        nationality::VARCHAR                    AS nationality,
+        NULLIF(code, '')::VARCHAR               AS code,
+        TRY_CAST(NULLIF(number, '') AS INTEGER) AS driver_number
+    FROM bronze.drivers;
+    """
+)
+
 
     con.execute(
         """
