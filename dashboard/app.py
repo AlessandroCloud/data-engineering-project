@@ -1,27 +1,9 @@
-import re
 from pathlib import Path
 
 import duckdb
 import polars as pl
 import streamlit as st
-
-
-# --------------------------------------------------
-# CONFIG E CONNESSIONE
-# --------------------------------------------------
-
-# Base directory del progetto (un livello sopra /dashboard)
-BASE_DIR = Path(__file__).resolve().parents[1]
-DB_PATH = BASE_DIR / "data" / "f1.duckdb"
-
-
-def get_connection():
-    """
-    Apre una connessione read-only a DuckDB.
-    In produzione la connessione andrebbe gestita meglio (pool, context manager, ecc.).
-    """
-    return duckdb.connect(DB_PATH.as_posix(), read_only=True)
-
+from etl.utils import get_connection
 
 # --------------------------------------------------
 # TEXT-TO-SQL (versione rule-based)
@@ -136,10 +118,7 @@ def text_to_sql(question: str) -> str | None:
     # nessuna regola trovata
     return None
 
-
-# --------------------------------------------------
-# QUERY DI SUPPORTO (KPI E DATAFRAME)
-# --------------------------------------------------
+#  (KPI E DATAFRAME)
 
 def get_years():
     con = get_connection()
@@ -240,9 +219,9 @@ def get_points_trend(selected_years: list[int] | None = None) -> pl.DataFrame:
     return df
 
 
-# --------------------------------------------------
+
 # STREAMLIT APP
-# --------------------------------------------------
+
 
 def main():
     st.set_page_config(
