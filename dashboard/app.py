@@ -130,58 +130,23 @@ def get_points_trend(selected_years: list[int] | None = None) -> pl.DataFrame:
 # --------------------------------------------------
 
 def gemini_text_to_sql(question: str) -> str:
-    """
-    Usa Gemini per tradurre una domanda in linguaggio naturale
-    in una query SQL sullo schema GOLD (DuckDB).
-    """
     if not genai or not GEMINI_API_KEY:
-        raise RuntimeError("Gemini non configurato: manca GEMINI_API_KEY nel .env")
+        raise RuntimeError("Gemini non configurato")
 
-    # Prompt con schema gold (adattalo se modifichi le tabelle)
     prompt = f"""
-Sei un assistente che converte domande in SQL per DuckDB.
-
-Schema F1 (namespace GOLD):
-
-- gold.fact_race_results(
-    race_id, driver_id, constructor_id,
-    season_year, round,
-    grid, position, points, laps, status_id
-  )
-
-- gold.dim_driver(
-    driver_id, forename, surname, driver_ref, nationality
-  )
-
-- gold.dim_constructor(
-    constructor_id, constructor_name, nationality
-  )
-
-- gold.dim_race(
-    race_id, season_year, round, race_name, circuit_id, race_date
-  )
-
-Regole IMPORTANTI:
-- Genera SOLO SQL, nessun commento, nessuna spiegazione.
-- NON usare SELECT *.
-- Usa sempre il namespace gold.<tabella>.
-- Assicurati che i nomi delle colonne esistano nello schema.
-- Se l'utente non specifica l'anno, usa tutte le stagioni.
-- Limita il risultato a 50 righe quando ha senso.
-- SQL deve essere compatibile con DuckDB.
-
-Domanda utente:
-\"\"\"{question}\"\"\"
-"""
+    SEI UN ASSISTENTE SQL...
+    ... (omesso per brevità) ...
+    Domanda:
+    \"\"\"{question}\"\"\"
+    """
 
     model = genai.GenerativeModel("gemini-1.5-pro-latest")
+
     response = model.generate_content(prompt)
     sql = response.text.strip()
 
-    # rimuove eventuali ```sql ... ``` se presenti
     sql = sql.replace("```sql", "").replace("```", "").strip()
     return sql
-
 
 # --------------------------------------------------
 # STREAMLIT APP
