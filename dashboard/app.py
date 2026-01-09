@@ -140,13 +140,14 @@ def gemini_text_to_sql(question: str) -> str:
     \"\"\"{question}\"\"\"
     """
 
-    model = genai.GenerativeModel("gemini-1.5-pro-latest")
+    model = genai.GenerativeModel("gemini-1.5-pro")
 
     response = model.generate_content(prompt)
     sql = response.text.strip()
 
     sql = sql.replace("```sql", "").replace("```", "").strip()
     return sql
+
 
 # --------------------------------------------------
 # STREAMLIT APP
