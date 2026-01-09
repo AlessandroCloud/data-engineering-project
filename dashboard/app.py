@@ -3,19 +3,62 @@ import re
 
 import polars as pl
 import streamlit as st
+from dotenv import load_dotenv
 from etl.utils import get_connection
 import google.generativeai as genai
 
 
+
 # --------------------------------------------------
-# CONFIG GEMINI
+# CONFIG GEMINI: carica .env, configura API e sceglie un modello valido
 # --------------------------------------------------
 
+load_dotenv()  # carica GEMINI_API_KEY dal file .env nella root del progetto
+
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+GEMINI_MODEL_NAME: str | None = None
+
 if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
+    try:
+        genai.configure(api_key=GEMINI_API_KEY)
+        # elenca i modelli disponibili per questa API key
+        models = list(genai.list_models())
+
+        # filtriamo solo quelli che supportano generateContent
+        gc_models = [
+            m for m in models
+            if "generateContent" in getattr(m, "supported_generation_methods", [])
+        ]
+
+        # preferenze (se presenti)
+        preferred_suffixes = [
+            "gemini-1.5-pro",
+            "gemini-1.5-flash",
+            "gemini-pro",
+        ]
+
+        chosen = None
+        for suffix in preferred_suffixes:
+            for m in gc_models:
+                # m.name è di solito tipo "models/gemini-1.5-pro"
+                if m.name.endswith(suffix):
+                    chosen = m.name
+                    break
+            if chosen:
+                break
+
+        # se non troviamo nulla di "preferred", prendiamo il primo gc_models
+        if not chosen and gc_models:
+            chosen = gc_models[0].name
+
+        GEMINI_MODEL_NAME = chosen
+
+    except Exception as e:
+        # in caso di errore durante list_models, disabilitiamo Gemini
+        GEMINI_MODEL_NAME = None
 else:
-    genai = None  # la useremo per capire se mostrare l'area Text-to-SQL
+    genai = None  # nessuna API key, Gemini non attivo
+
 
 
 # --------------------------------------------------
@@ -130,23 +173,60 @@ def get_points_trend(selected_years: list[int] | None = None) -> pl.DataFrame:
 # --------------------------------------------------
 
 def gemini_text_to_sql(question: str) -> str:
-    if not genai or not GEMINI_API_KEY:
-        raise RuntimeError("Gemini non configurato")
+    """
+    Usa Gemini per tradurre una domanda in linguaggio naturale
+    in una query SQL sullo schema GOLD (DuckDB).
+    """
+    if not genai or not GEMINI_API_KEY or not GEMINI_MODEL_NAME:
+        raise RuntimeError(
+            "Gemini non configurato correttamente: "
+            "controlla GEMINI_API_KEY e che ci sia almeno un modello con generateContent."
+        )
 
     prompt = f"""
-    SEI UN ASSISTENTE SQL...
-    ... (omesso per brevità) ...
-    Domanda:
-    \"\"\"{question}\"\"\"
-    """
+Sei un assistente che converte domande in SQL per DuckDB.
 
-    model = genai.GenerativeModel("gemini-1.5-pro")
+Schema F1 (namespace GOLD):
 
+- gold.fact_race_results(
+    race_id, driver_id, constructor_id,
+    season_year, round,
+    grid, position, points, laps, status_id
+  )
+
+- gold.dim_driver(
+    driver_id, forename, surname, driver_ref, nationality
+  )
+
+- gold.dim_constructor(
+    constructor_id, constructor_name, nationality
+  )
+
+- gold.dim_race(
+    race_id, season_year, round, race_name, circuit_id, race_date
+  )
+
+Regole IMPORTANTI:
+- Genera SOLO SQL, nessun commento, nessuna spiegazione.
+- NON usare SELECT *.
+- Usa sempre il namespace gold.<tabella>.
+- Assicurati che i nomi delle colonne esistano nello schema.
+- Se l'utente non specifica l'anno, usa tutte le stagioni.
+- Limita il risultato a 50 righe quando ha senso.
+- SQL deve essere compatibile con DuckDB.
+
+Domanda utente:
+\"\"\"{question}\"\"\"
+"""
+
+    model = genai.GenerativeModel(GEMINI_MODEL_NAME)
     response = model.generate_content(prompt)
     sql = response.text.strip()
 
+    # rimuove eventuali ```sql ... ``` se presenti
     sql = sql.replace("```sql", "").replace("```", "").strip()
     return sql
+
 
 
 # --------------------------------------------------
