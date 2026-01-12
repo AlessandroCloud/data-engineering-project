@@ -8,12 +8,9 @@ from etl.utils import get_connection
 import google.generativeai as genai
 
 
+# CONFIG GEMINI
 
-# --------------------------------------------------
-# CONFIG GEMINI: carica .env, configura API e sceglie un modello valido
-# --------------------------------------------------
-
-load_dotenv()  # carica GEMINI_API_KEY dal file .env nella root del progetto
+load_dotenv()
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 GEMINI_MODEL_NAME: str | None = None
@@ -21,16 +18,16 @@ GEMINI_MODEL_NAME: str | None = None
 if GEMINI_API_KEY:
     try:
         genai.configure(api_key=GEMINI_API_KEY)
-        # elenca i modelli disponibili per questa API key
+        
         models = list(genai.list_models())
 
-        # filtriamo solo quelli che supportano generateContent
+        
         gc_models = [
             m for m in models
             if "generateContent" in getattr(m, "supported_generation_methods", [])
         ]
 
-        # preferenze (se presenti)
+        
         preferred_suffixes = [
             "gemini-1.5-pro",
             "gemini-1.5-flash",
@@ -40,30 +37,30 @@ if GEMINI_API_KEY:
         chosen = None
         for suffix in preferred_suffixes:
             for m in gc_models:
-                # m.name è di solito tipo "models/gemini-1.5-pro"
+                
                 if m.name.endswith(suffix):
                     chosen = m.name
                     break
             if chosen:
                 break
 
-        # se non troviamo nulla di "preferred", prendiamo il primo gc_models
+        
         if not chosen and gc_models:
             chosen = gc_models[0].name
 
         GEMINI_MODEL_NAME = chosen
 
     except Exception as e:
-        # in caso di errore durante list_models, disabilitiamo Gemini
+        
         GEMINI_MODEL_NAME = None
 else:
-    genai = None  # nessuna API key, Gemini non attivo
+    genai = None  
 
 
 
-# --------------------------------------------------
+
 # FUNZIONI DI ACCESSO AL GOLD (KPI, DATAFRAME)
-# --------------------------------------------------
+
 
 def get_years() -> list[int]:
     """Ritorna la lista delle stagioni disponibili nel GOLD."""
@@ -168,9 +165,9 @@ def get_points_trend(selected_years: list[int] | None = None) -> pl.DataFrame:
     return df
 
 
-# --------------------------------------------------
+
 # TEXT-TO-SQL CON GEMINI
-# --------------------------------------------------
+
 
 def gemini_text_to_sql(question: str) -> str:
     """
@@ -229,9 +226,9 @@ Domanda utente:
 
 
 
-# --------------------------------------------------
+
 # STREAMLIT APP
-# --------------------------------------------------
+
 
 def main():
     st.set_page_config(
@@ -242,20 +239,20 @@ def main():
     st.title("🏎️ F1 Analytics Dashboard")
     st.caption("Pipeline DuckDB + Prefect + Polars + Streamlit (GOLD layer)")
 
-    # ---- SIDEBAR: FILTRI ----
+    # SIDEBAR: FILTRI
     st.sidebar.header("Filtri")
 
     all_years = get_years()
     selected_years = st.sidebar.multiselect(
         "Seleziona una o più stagioni",
         options=all_years,
-        default=all_years,  # per default: tutte
+        default=all_years, 
     )
 
-    # Se l'utente seleziona tutti gli anni, per le query passo None e considero "no filtro"
+    
     years_filter = None if set(selected_years) == set(all_years) else selected_years
 
-    # ---- KPI SECTION ----
+    # KPI SECTION 
     st.subheader("Panoramica GOLD")
 
     kpis = get_kpis(years_filter)
@@ -266,7 +263,7 @@ def main():
     c3.metric("Piloti", kpis["total_drivers"])
     c4.metric("Costruttori", kpis["total_constructors"])
 
-    # ---- TOP DRIVERS ----
+    # TOP DRIVERS 
     st.subheader("Top driver per punti totali")
 
     top_df = get_top_drivers(years_filter, limit=10)
@@ -281,7 +278,7 @@ def main():
     else:
         st.info("Nessun dato disponibile per i filtri selezionati.")
 
-    # ---- TREND PUNTI ----
+    # TREND PUNTI 
     st.subheader("Andamento dei punti medi per stagione")
 
     trend_df = get_points_trend(years_filter)
@@ -296,8 +293,8 @@ def main():
 
     st.markdown("---")
 
-    # ---- TEXT-TO-SQL CON GEMINI ----
-    st.subheader("🧠 Text-to-SQL con Gemini (demo)")
+    # TEXT-TO-SQL CON GEMINI
+    st.subheader(" Text-to-SQL con Gemini (demo)")
 
     if not GEMINI_API_KEY:
         st.warning(
