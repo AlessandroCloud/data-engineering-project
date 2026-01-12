@@ -1,1 +1,45 @@
+# --- Secrets ---
 .env
+.env.local
+.env.*.local
+
+# --- Python env ---
+.venv/
+venv/
+env/
+
+# --- Python cache ---
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+
+# --- Build ---
+dist/
+build/
+
+# --- Data lake / warehouse ---
+data/raw/
+data/bronze/
+data/silver/
+data/gold/
+warehouse.duckdb
+*.duckdb
+*.parquet
+*.csv
+
+# --- Streamlit ---
+.streamlit/credentials.toml
+.streamlit/secrets.toml
+
+# --- VS Code ---
+.vscode/
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+
+# --- Misc ---
+.cache/
+*.log
