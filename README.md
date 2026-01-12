@@ -31,4 +31,4 @@ Costruire una pipeline dati completa e riproducibile che consenta di:
 - **Gold**  
   Modello analitico a **star schema** (fact & dimension tables), pronto per dashboard e KPI.
 
-Il design del modello dati è documentato in:
+
