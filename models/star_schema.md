@@ -275,3 +275,5 @@ permette di mantenere il modello pulito,
 versionabile e facilmente manutenibile.
 
 ---
+
+![alt text](<..\models\diagrams\Schema di Database F1.png>)
