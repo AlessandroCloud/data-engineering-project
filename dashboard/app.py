@@ -1,17 +1,35 @@
 import sys
 from pathlib import Path
-
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.append(str(ROOT))
-
 import os
 import re
 
 import polars as pl
 import streamlit as st
 from dotenv import load_dotenv
-from etl.utils import get_connection
 import google.generativeai as genai
+
+# --- PATH: aggiungo la root del progetto al PYTHONPATH ---
+ROOT = Path(__file__).resolve().parents[1]  
+if str(ROOT) not in sys.path:
+    sys.path.append(str(ROOT))
+
+from etl.utils import get_connection
+
+# --- ENV & GEMINI ---
+load_dotenv()
+
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
+else:
+    
+    st.warning("GEMINI_API_KEY non trovata: il modulo Text-to-SQL sarà disabilitato.")
+
+# --- CONNESSIONE DUCKDB 
+def get_duckdb_connection():
+    return get_connection(read_only=True)
+
 
 
 # CONFIG GEMINI
