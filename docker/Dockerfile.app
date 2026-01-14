@@ -2,10 +2,12 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-COPY dashboard/ dashboard/
 COPY requirements.txt .
-
 RUN pip install --no-cache-dir -r requirements.txt
+
+COPY dashboard/ dashboard/
+COPY etl/ etl/
+COPY models/ models/
 
 EXPOSE 8501
 
