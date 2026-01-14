@@ -294,7 +294,7 @@ def main():
     st.markdown("---")
 
     # TEXT-TO-SQL CON GEMINI
-    st.subheader(" Text-to-SQL con Gemini (demo)")
+    st.subheader(" Text-to-SQL con Gemini ")
 
     if not GEMINI_API_KEY:
         st.warning(
