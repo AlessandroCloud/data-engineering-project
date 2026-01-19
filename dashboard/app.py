@@ -8,6 +8,26 @@ import streamlit as st
 from dotenv import load_dotenv
 import google.generativeai as genai
 
+def get_gemini_api_key() -> str | None:
+    # 1) Streamlit secrets (Cloud)
+    if "GEMINI_API_KEY" in st.secrets:
+        return st.secrets["GEMINI_API_KEY"]
+
+    # 2) Env var (fallback locale / CI)
+    return os.getenv("GEMINI_API_KEY")
+
+api_key = get_gemini_api_key()
+
+if not api_key:
+    st.warning(
+        "Text-to-SQL disabilitato: manca GEMINI_API_KEY (Secrets su Streamlit Cloud)."
+    )
+    genai = None
+else:
+    import google.generativeai as genai
+    genai.configure(api_key=api_key)
+
+
 # --- PATH: aggiungo la root del progetto al PYTHONPATH ---
 ROOT = Path(__file__).resolve().parents[1]  
 if str(ROOT) not in sys.path:
