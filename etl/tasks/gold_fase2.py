@@ -116,6 +116,7 @@ def build_gold_f1() -> list[str]:
         CREATE OR REPLACE TABLE gold.dim_race AS
         SELECT
             raceId,
+            year AS season_year,
             year,
             round,
             circuitId,
