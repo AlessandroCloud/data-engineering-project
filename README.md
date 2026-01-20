@@ -1,189 +1,85 @@
-# data-engineering project
-
 ## Data Engineering Project – Formula 1
 
 Questo repository contiene un progetto di Data Engineering end-to-end basato sui dati storici del campionato mondiale di Formula 1 (1950–2020).
+Il progetto nasce con l’obiettivo di simulare un flusso dati realistico, dalla sorgente grezza fino al serving tramite dashboard, seguendo buone pratiche di data engineering.
 
-Il progetto è sviluppato in due fasi progressive, con l’obiettivo di costruire una pipeline dati completa, riproducibile e pronta per il serving tramite dashboard.
+Lo sviluppo è articolato in due fasi progressive. La prima fase costruisce una pipeline funzionante e una dashboard analitica di base. La seconda fase introduce un’evoluzione architetturale che rende la pipeline più robusta, automatizzata e vicina a uno scenario reale di produzione.
 
 # Dataset
 
-Fonte: Kaggle – Formula 1 World Championship (1950–2020)
-
-Dominio: motorsport / analytics
-
-Entità principali: gare, piloti, costruttori, risultati
+Il dataset utilizzato proviene da Kaggle ed è dedicato allo storico completo del campionato mondiale di Formula 1 dal 1950 al 2020.
+Il dominio è quello del motorsport analytics e comprende le principali entità del campionato, come gare, piloti, costruttori e risultati. Questo tipo di dati si presta bene a esercizi di modellazione analitica, analisi temporali e costruzione di KPI.
 
 # Obiettivo del progetto
 
-Costruire una pipeline dati che consenta di:
-
-analizzare le performance di piloti e costruttori
-
-studiare l’andamento delle stagioni nel tempo
-
-supportare dashboard interattive e analisi esplorative
-
-simulare un’architettura data engineering realistica
+L’obiettivo principale del progetto è costruire una pipeline dati completa e riproducibile che permetta di analizzare le performance di piloti e costruttori, studiare l’evoluzione delle stagioni nel tempo e supportare dashboard interattive e analisi esplorative.
+Dal punto di vista architetturale, il progetto mira anche a simulare un contesto di data engineering realistico, introducendo concetti come stratificazione dei dati, ingestione incrementale, orchestrazione e scheduling automatico.
 
 # Architettura a Layer
 
-L’intero progetto è organizzato secondo un’architettura a layer:
+L’intero progetto è organizzato secondo un’architettura a layer, una scelta comune nei sistemi di data engineering moderni.
 
-Bronze
-Dati grezzi ingestiti dalla sorgente, senza trasformazioni logiche.
+Il layer **Bronze** rappresenta il livello più vicino alla sorgente. Qui i dati vengono ingestiti in forma grezza, senza trasformazioni logiche, mantenendo una copia il più fedele possibile all’input originale.
 
-Silver
-Dati puliti e standardizzati (tipi, naming coerente, deduplicazione).
+Il layer **Silver** introduce una prima fase di trasformazione. In questo livello i dati vengono puliti, tipizzati correttamente, standardizzati nel naming e deduplicati. L’obiettivo è ottenere dataset consistenti e pronti per l’analisi.
 
-Gold
-Modello analitico a star schema (fact & dimension tables), pronto per KPI e dashboard.
+Il layer **Gold** è pensato per il serving. In questa fase i dati vengono modellati secondo uno schema analitico a stella, con tabelle di fatto e dimensioni, ottimizzate per KPI, aggregazioni e dashboard.
 
-# FASE 1 – Pipeline base e dashboard
+# Fase 1 – Pipeline base e dashboard
 
-La Fase 1 ha l’obiettivo di costruire una pipeline funzionante e una prima dashboard analitica.
+La Fase 1 ha come obiettivo la costruzione di una pipeline end-to-end funzionante e di una prima dashboard analitica.
 
-Caratteristiche principali
+In questa fase i dati vengono ingestiti direttamente dai file CSV originali del dataset. Dopo l’ingestione, vengono applicate le trasformazioni necessarie per costruire il layer Silver, occupandosi di pulizia, normalizzazione dei tipi e coerenza dei nomi delle colonne.
+Successivamente viene costruito il layer Gold, modellato in modo da supportare interrogazioni analitiche e KPI.
 
-Ingestione dei dati dai CSV originali
+I dati vengono persistiti in **DuckDB**, che funge da data warehouse embedded, e la parte di serving è realizzata tramite una dashboard interattiva sviluppata con Streamlit.
 
-Trasformazioni Silver (pulizia e normalizzazione)
+Il risultato della Fase 1 è una pipeline completa e funzionante, con un modello Gold coerente e una dashboard locale in grado di visualizzare KPI e analisi. Tuttavia, l’ingestione dei dati è di tipo batch statico: a ogni esecuzione l’intero dataset viene rielaborato.
 
-Costruzione del layer Gold
+# Fase 2 – Data Lake, incrementalità e orchestrazione
 
-Persistenza su DuckDB
+La Fase 2 rappresenta un’evoluzione architetturale della pipeline, con l’obiettivo di simulare uno scenario più realistico di data engineering.
 
-Dashboard interattiva con Streamlit
+In questa fase viene introdotto un Data Lake open-source su filesystem locale, con dati salvati in formato Parquet, che diventa la fonte di verità della pipeline. I dati vengono suddivisi in batch giornalieri, organizzati per data di ingestione (dt=YYYY-MM-DD), in modo da simulare l’arrivo incrementale dei dati nel tempo.
+
+L’ingestione diventa quindi incrementale: a ogni esecuzione la pipeline rileva quali batch sono già stati processati e quali no, grazie a un ledger di controllo (meta.processed_batches). Questo meccanismo garantisce idempotenza ed evita duplicazioni, permettendo di processare solo i nuovi dati.
+
+L’intero flusso Bronze → Silver → Gold viene orchestrato tramite un flow unico, eseguibile sia in locale sia in modalità automatizzata.
+Lo scheduling è gestito tramite GitHub Actions, che consente sia l’esecuzione manuale sia l’esecuzione schedulata via cron, simulando una pipeline automatica di produzione. Al termine di ogni run, il warehouse aggiornato viene versionato nel repository.
+
+# Dashboard e serving
+
+La dashboard Streamlit rimane collegata al layer Gold e continua a funzionare correttamente anche dopo più esecuzioni schedulate della pipeline. Questo dimostra che la parte di serving è completamente disaccoppiata dalla logica di ingestione.
+
+La dashboard è stata inoltre deployata pubblicamente su Streamlit Cloud, rendendo i risultati consultabili senza necessità di esecuzione locale.
+È presente anche una funzionalità opzionale di Text-to-SQL basata su Google Gemini, che consente interrogazioni in linguaggio naturale. Questa parte è accessoria e non influisce sul funzionamento principale della dashboard.
+
+🔗 Dashboard pubblica:
+https://data-engineering-project-f1.streamlit.app/
+
+# Sicurezza e gestione delle credenziali
+
+Il progetto non contiene alcuna API key nel codice o nel repository.
+Le credenziali vengono gestite tramite st.secrets su Streamlit Cloud e tramite variabili d’ambiente in locale. La dashboard rimane pienamente operativa anche in assenza della chiave AI, garantendo una separazione netta tra funzionalità core e funzionalità opzionali.
 
 # Tecnologie utilizzate
 
-Python
+- **Python** – linguaggio principale del progetto 
 
-DuckDB
+- **DuckDB** – data warehouse embedded per la persistenza e le query analitiche  
 
-Polars
+- **Polars** – trasformazioni e manipolazione dei dati  
 
-Streamlit
+- **Streamlit** – serving e visualizzazione tramite dashboard interattiva  
 
-Output Fase 1
+- **GitHub Actions** – orchestrazione ed esecuzione schedulata della pipeline  
 
-Pipeline funzionante end-to-end
+- **Parquet** – formato colonnare per lo storage nel Data Lake  
 
-Modello Gold coerente
-
-Dashboard locale con KPI e visualizzazioni
-
-Questa fase rappresenta una baseline funzionale: i dati sono corretti e la dashboard è operativa, ma l’ingestione è batch “statica”.
-
-# FASE 2 – Data Lake, incrementalità e orchestrazione
-
-La Fase 2 introduce un’evoluzione architetturale, simulando uno scenario più realistico di data engineering.
-
-Novità introdotte
-
-Data Lake open-source su filesystem locale
-
-Suddivisione dei dati per batch giornalieri (dt=YYYY-MM-DD)
-
-Ingestione incrementale
-
-Ledger di controllo per evitare duplicazioni
-
-Orchestrazione completa del flusso
-
-Scheduling automatico
-
-# Data Lake
-
-Formato: Parquet (colonnare)
-
-Struttura:
-
-data_lake/raw/
-  └── dt=YYYY-MM-DD/
-       ├── races.parquet
-       ├── drivers.parquet
-       ├── results.parquet
-       └── ...
-
-Il Data Lake diventa la fonte di verità della pipeline.
-
-# Ingestione Incrementale
-
-Ogni esecuzione della pipeline:
-
-rileva i batch presenti nel Data Lake
-
-confronta le date con il ledger (meta.processed_batches)
-
-processa solo i nuovi dati
-
-garantisce idempotenza e coerenza storica
-
-Orchestrazione e Scheduling
-
-Flow unico Bronze → Silver → Gold
-
-Esecuzione locale
-
-# GitHub Actions:
-
-run manuale
-
-run schedulato via cron
-
-Commit automatico del warehouse aggiornato
-
-Questo consente di simulare una pipeline automatizzata e ripetibile.
-
-Dashboard e Serving
-
-Dashboard Streamlit collegata al layer Gold
-
-Deploy pubblico su Streamlit Cloud
-
-La dashboard continua a funzionare correttamente anche dopo più run schedulate della pipeline
-
-La parte Text-to-SQL con Gemini è opzionale e gestita tramite Secrets
-
-# Sicurezza e Secrets
-
-Nessuna API key nel codice o nel repository
-
-Gestione credenziali tramite:
-
-st.secrets su Streamlit Cloud
-
-variabili d’ambiente in locale
-
-La dashboard rimane operativa anche senza chiave AI
-
-Tecnologie principali
-
-Python
-
-DuckDB
-
-Polars
-
-Streamlit
-
-GitHub Actions
-
-Parquet
-
-(Opzionale) Google Gemini – Text-to-SQL
+- **Google Gemini** – componente opzionale per funzionalità di Text-to-SQL
 
 # Conclusione
 
-Il progetto dimostra:
+Questo progetto dimostra la realizzazione di una pipeline di data engineering completa e stratificata, capace di gestire ingestione incrementale, orchestrazione automatica e serving tramite dashboard.
 
-una pipeline dati completa e stratificata
-
-ingestione incrementale realistica
-
-orchestrazione e scheduling automatico
-
-integrazione tra data engineering e data visualization
-
-La Fase 2 rappresenta un’evoluzione architetturale della Fase 1, senza modificare i contenuti informativi, ma migliorando robustezza, scalabilità e automazione.
+La Fase 2 non modifica i contenuti informativi della Fase 1, ma ne rappresenta un’evoluzione architetturale significativa, migliorando robustezza, scalabilità e automazione del sistema nel suo complesso.
