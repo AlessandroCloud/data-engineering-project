@@ -30,8 +30,21 @@ def _read_csv(name: str) -> pl.DataFrame:
     p = RAW_DIR / f"{name}.csv"
     if not p.exists():
         raise FileNotFoundError(f"Missing source CSV: {p}")
-    return pl.read_csv(p, try_parse_dates=True)
 
+    if name == "results":
+        return pl.read_csv(
+            p,
+            try_parse_dates=True,
+            infer_schema_length=10000,
+            schema_overrides={
+                "points": pl.Float64,
+                # opzionali ma utili per stabilità:
+                "milliseconds": pl.Int64,
+                "rank": pl.Int64,
+            },
+        )
+
+    return pl.read_csv(p, try_parse_dates=True, infer_schema_length=10000)
 
 def main() -> None:
     dt = _dt_value()
@@ -44,6 +57,9 @@ def main() -> None:
     races = _read_csv("races")
     results = _read_csv("results")
 
+    results = results.with_columns(
+    pl.col("points").cast(pl.Float64, strict=False).fill_null(0.0)
+)
     # nuovo anno = max(year) + 1 -> se max è 2024, new_year diventa 2025
     max_year = int(races.select(pl.col("year").max()).item())
     new_year = max_year + 1
