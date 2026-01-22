@@ -34,18 +34,25 @@ def _read_csv(name: str) -> pl.DataFrame:
             p,
             try_parse_dates=True,
             infer_schema_length=10000,
+            null_values=["\\N"],  # <-- IMPORTANTISSIMO per dataset F1
             schema_overrides={
                 "points": pl.Float64,
-                # opzionali ma utili per stabilità
+                # queste colonne hanno spesso \N quindi meglio gestirle
                 "milliseconds": pl.Int64,
                 "rank": pl.Int64,
+                "fastestLap": pl.Int64,
             },
         )
-        # ulteriore hardening: se points arrivasse come stringa, cast morbido
-        df = df.with_columns(pl.col("points").cast(pl.Float64, strict=False))
+
+        # hardening: cast morbidi in caso arrivino come stringhe
+        df = df.with_columns([
+            pl.col("points").cast(pl.Float64, strict=False),
+            pl.col("milliseconds").cast(pl.Int64, strict=False),
+            pl.col("rank").cast(pl.Int64, strict=False),
+            pl.col("fastestLap").cast(pl.Int64, strict=False),
+        ])
         return df
 
-    return pl.read_csv(p, try_parse_dates=True, infer_schema_length=10000)
 
 
 def main() -> None:
