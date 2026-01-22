@@ -26,16 +26,24 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Simulate daily data arrival
+      # 1) Simula arrivo dati "realistico" per F1:
+      #    invece di inventare nuove race storiche, genera una NUOVA STAGIONE sintetica
+      - name: Generate synthetic season batch (Data Lake)
+        env:
+          # batch id univoco per run -> evita che il ledger blocchi rerun nello stesso giorno
+          BATCH_DT: ${{ github.run_id }}-${{ github.run_attempt }}
+          # stagione di riferimento da clonare (stesso numero gare + piloti)
+          BASE_YEAR: "2020"
         run: |
-          export BATCH_DT=$(date +%F)
-          python scripts/create_batch_from_csv.py
+          python scripts/generate_synthetic_season_batch.py
 
+      # 2) Pipeline end-to-end (bronze -> silver -> gold)
       - name: Run Fase 2 pipeline (bronze → silver → gold)
         run: |
           python run_fase2_ci.py
 
-      - name: Commit updated warehouse
+      # 3) Commit DB + nuovi batch del Data Lake
+      - name: Commit updated warehouse and data lake
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
