@@ -5,53 +5,52 @@ import re
 
 import polars as pl
 import streamlit as st
-from dotenv import load_dotenv
-import google.generativeai as genai
 
 # --- PATH: aggiungo la root del progetto al PYTHONPATH ---
-ROOT = Path(__file__).resolve().parents[1]  
+ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))
 
 from etl.utils import get_connection
 
-# --- ENV & GEMINI ---
-load_dotenv()
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+# =========================
+# GEMINI / TEXT-TO-SQL SETUP
+# =========================
 
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
-else:
-    
-    st.warning("GEMINI_API_KEY non trovata: il modulo Text-to-SQL sarà disabilitato.")
+def get_gemini_api_key() -> str | None:
+    """
+    Ordine di priorità:
+    1) Streamlit Cloud secrets
+    2) Variabili d'ambiente (locale/CI)
+    """
+    if "GEMINI_API_KEY" in st.secrets:
+        return st.secrets["GEMINI_API_KEY"]
+    return os.getenv("GEMINI_API_KEY")
 
-# --- CONNESSIONE DUCKDB 
-def get_duckdb_connection():
-    return get_connection(read_only=True)
 
+def init_gemini() -> tuple[object | None, str | None]:
+    """
+    Inizializza Gemini una sola volta.
+    Ritorna:
+      - genai module (o None se non configurabile)
+      - nome modello (o None)
+    """
+    api_key = get_gemini_api_key()
+    if not api_key:
+        return None, None
 
-
-# CONFIG GEMINI
-
-load_dotenv()
-
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-GEMINI_MODEL_NAME: str | None = None
-
-if GEMINI_API_KEY:
     try:
-        genai.configure(api_key=GEMINI_API_KEY)
-        
-        models = list(genai.list_models())
+        import google.generativeai as genai
+        genai.configure(api_key=api_key)
 
-        
+        # Seleziona un modello che supporta generateContent
+        models = list(genai.list_models())
         gc_models = [
             m for m in models
             if "generateContent" in getattr(m, "supported_generation_methods", [])
         ]
 
-        
         preferred_suffixes = [
             "gemini-1.5-pro",
             "gemini-1.5-flash",
@@ -61,30 +60,40 @@ if GEMINI_API_KEY:
         chosen = None
         for suffix in preferred_suffixes:
             for m in gc_models:
-                
                 if m.name.endswith(suffix):
                     chosen = m.name
                     break
             if chosen:
                 break
 
-        
         if not chosen and gc_models:
             chosen = gc_models[0].name
 
-        GEMINI_MODEL_NAME = chosen
+        if not chosen:
+            return None, None
 
-    except Exception as e:
-        
-        GEMINI_MODEL_NAME = None
-else:
-    genai = None  
+        return genai, chosen
+
+    except Exception:
+        # Non blocchiamo la dashboard se Gemini non va
+        return None, None
 
 
+# inizializzazione globale (Streamlit riesegue il file, ma è ok: è comunque "una sola logica")
+genai, GEMINI_MODEL_NAME = init_gemini()
 
 
-# FUNZIONI DI ACCESSO AL GOLD (KPI, DATAFRAME)
+# =========================
+# DUCKDB
+# =========================
 
+def get_duckdb_connection():
+    return get_connection(read_only=True)
+
+
+# =========================
+# FUNZIONI DI ACCESSO AL GOLD
+# =========================
 
 def get_years() -> list[int]:
     """Ritorna la lista delle stagioni disponibili nel GOLD."""
@@ -189,8 +198,27 @@ def get_points_trend(selected_years: list[int] | None = None) -> pl.DataFrame:
     return df
 
 
-
+# =========================
 # TEXT-TO-SQL CON GEMINI
+# =========================
+
+def _clean_sql(sql: str) -> str:
+    sql = sql.strip()
+    sql = sql.replace("```sql", "").replace("```", "").strip()
+    return sql
+
+
+def _is_safe_select(sql: str) -> bool:
+    """
+    Guardrail minimale:
+    - ammettiamo solo SELECT (niente INSERT/UPDATE/DELETE/CREATE/DROP)
+    """
+    s = re.sub(r"\s+", " ", sql.strip().lower())
+    if not s.startswith("select"):
+        return False
+
+    forbidden = ["insert", "update", "delete", "create", "drop", "alter", "attach", "copy", "pragma"]
+    return not any(f" {kw} " in f" {s} " for kw in forbidden)
 
 
 def gemini_text_to_sql(question: str) -> str:
@@ -198,10 +226,9 @@ def gemini_text_to_sql(question: str) -> str:
     Usa Gemini per tradurre una domanda in linguaggio naturale
     in una query SQL sullo schema GOLD (DuckDB).
     """
-    if not genai or not GEMINI_API_KEY or not GEMINI_MODEL_NAME:
+    if genai is None or GEMINI_MODEL_NAME is None:
         raise RuntimeError(
-            "Gemini non configurato correttamente: "
-            "controlla GEMINI_API_KEY e che ci sia almeno un modello con generateContent."
+            "Gemini non configurato: aggiungi GEMINI_API_KEY nei Secrets (Streamlit Cloud) o come env var (locale)."
         )
 
     prompt = f"""
@@ -211,7 +238,7 @@ Schema F1 (namespace GOLD):
 
 - gold.fact_race_results(
     race_id, driver_id, constructor_id,
-    season_year, round,
+    season_year,
     grid, position, points, laps, status_id
   )
 
@@ -242,17 +269,17 @@ Domanda utente:
 
     model = genai.GenerativeModel(GEMINI_MODEL_NAME)
     response = model.generate_content(prompt)
-    sql = response.text.strip()
+    sql = _clean_sql(response.text)
 
-    # rimuove eventuali ```sql ... ``` se presenti
-    sql = sql.replace("```sql", "").replace("```", "").strip()
+    if not _is_safe_select(sql):
+        raise RuntimeError("La query generata non è consentita (sono ammessi solo SELECT).")
+
     return sql
 
 
-
-
+# =========================
 # STREAMLIT APP
-
+# =========================
 
 def main():
     st.set_page_config(
@@ -270,13 +297,12 @@ def main():
     selected_years = st.sidebar.multiselect(
         "Seleziona una o più stagioni",
         options=all_years,
-        default=all_years, 
+        default=all_years,
     )
 
-    
     years_filter = None if set(selected_years) == set(all_years) else selected_years
 
-    # KPI SECTION 
+    # KPI SECTION
     st.subheader("Panoramica GOLD")
 
     kpis = get_kpis(years_filter)
@@ -287,7 +313,7 @@ def main():
     c3.metric("Piloti", kpis["total_drivers"])
     c4.metric("Costruttori", kpis["total_constructors"])
 
-    # TOP DRIVERS 
+    # TOP DRIVERS
     st.subheader("Top driver per punti totali")
 
     top_df = get_top_drivers(years_filter, limit=10)
@@ -296,34 +322,30 @@ def main():
         st.dataframe(top_df.to_pandas())
 
         chart_df = top_df.sort("total_points", descending=True)
-        st.bar_chart(
-            chart_df.to_pandas().set_index("driver_name")[["total_points"]]
-        )
+        st.bar_chart(chart_df.to_pandas().set_index("driver_name")[["total_points"]])
     else:
         st.info("Nessun dato disponibile per i filtri selezionati.")
 
-    # TREND PUNTI 
+    # TREND PUNTI
     st.subheader("Andamento dei punti medi per stagione")
 
     trend_df = get_points_trend(years_filter)
 
     if trend_df.height > 0:
         st.dataframe(trend_df.to_pandas())
-        st.line_chart(
-            trend_df.to_pandas().set_index("season_year")[["avg_points_per_result"]]
-        )
+        st.line_chart(trend_df.to_pandas().set_index("season_year")[["avg_points_per_result"]])
     else:
         st.info("Nessun dato disponibile per i filtri selezionati.")
 
     st.markdown("---")
 
     # TEXT-TO-SQL CON GEMINI
-    st.subheader(" Text-to-SQL con Gemini ")
+    st.subheader("Text-to-SQL con Gemini")
 
-    if not GEMINI_API_KEY:
+    if genai is None or GEMINI_MODEL_NAME is None:
         st.warning(
-            "GEMINI_API_KEY non configurata. "
-            "Aggiungi la chiave al file .env per attivare questa sezione."
+            "Text-to-SQL disabilitato: manca GEMINI_API_KEY nei Secrets (Streamlit Cloud) "
+            "o come variabile d’ambiente in locale."
         )
     else:
         st.write(
@@ -354,7 +376,6 @@ def main():
                     else:
                         st.dataframe(result_df.to_pandas())
 
-                        # Se la query restituisce un singolo valore numerico, mostriamo un metric
                         if result_df.height == 1 and result_df.width == 1:
                             value = result_df.row(0)[0]
                             st.metric("Risultato", value)
@@ -365,7 +386,7 @@ def main():
     st.caption(
         "La parte Text-to-SQL è opzionale: la dashboard principale rimane alimentata "
         "da query predefinite sul GOLD. Gemini viene usato solo per la funzionalità "
-        "aggiuntiva di chat / interrogazione libera."
+        "aggiuntiva di interrogazione libera."
     )
 
 
