@@ -24,14 +24,20 @@ def get_gemini_api_key() -> str | None:
     1) Streamlit Cloud secrets
     2) Variabili d'ambiente (locale/CI)
     """
-    if "GEMINI_API_KEY" in st.secrets:
-        return st.secrets["GEMINI_API_KEY"]
+    try:
+        # se secrets.toml è invalido in locale, Streamlit può lanciare eccezione
+        if "GEMINI_API_KEY" in st.secrets:
+            return st.secrets["GEMINI_API_KEY"]
+    except Exception:
+        pass
+
     return os.getenv("GEMINI_API_KEY")
 
 
+@st.cache_resource(show_spinner=False)
 def init_gemini() -> tuple[object | None, str | None]:
     """
-    Inizializza Gemini una sola volta.
+    Inizializza Gemini una sola volta (cache Streamlit).
     Ritorna:
       - genai module (o None se non configurabile)
       - nome modello (o None)
@@ -79,7 +85,6 @@ def init_gemini() -> tuple[object | None, str | None]:
         return None, None
 
 
-# inizializzazione globale (Streamlit riesegue il file, ma è ok: è comunque "una sola logica")
 genai, GEMINI_MODEL_NAME = init_gemini()
 
 
@@ -319,7 +324,10 @@ def main():
     top_df = get_top_drivers(years_filter, limit=10)
 
     if top_df.height > 0:
-        st.dataframe(top_df.to_pandas())
+        # più largo verso destra: mettiamo la tabella in una colonna “grassa”
+        left, right = st.columns([3, 1])
+        with left:
+            st.dataframe(top_df.to_pandas(), use_container_width=True)
 
         chart_df = top_df.sort("total_points", descending=True)
         st.bar_chart(chart_df.to_pandas().set_index("driver_name")[["total_points"]])
@@ -332,8 +340,18 @@ def main():
     trend_df = get_points_trend(years_filter)
 
     if trend_df.height > 0:
-        st.dataframe(trend_df.to_pandas())
-        st.line_chart(trend_df.to_pandas().set_index("season_year")[["avg_points_per_result"]])
+        # evita 1,950 -> cast a string (anno non è una quantità)
+        trend_df_display = trend_df.with_columns(
+            pl.col("season_year").cast(pl.Utf8)
+        )
+
+        st.dataframe(trend_df_display.to_pandas(), use_container_width=True)
+
+        # per il chart: usiamo pandas con season_year come stringa (niente separatore migliaia)
+        pdf_trend = trend_df.to_pandas()
+        pdf_trend["season_year"] = pdf_trend["season_year"].astype(str)
+
+        st.line_chart(pdf_trend.set_index("season_year")[["avg_points_per_result"]])
     else:
         st.info("Nessun dato disponibile per i filtri selezionati.")
 
@@ -374,7 +392,7 @@ def main():
                     if result_df.height == 0:
                         st.info("La query non ha restituito risultati.")
                     else:
-                        st.dataframe(result_df.to_pandas())
+                        st.dataframe(result_df.to_pandas(), use_container_width=True)
 
                         if result_df.height == 1 and result_df.width == 1:
                             value = result_df.row(0)[0]
