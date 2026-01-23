@@ -26,6 +26,10 @@ data/silver/
 data/gold/
 data/
 !data_lake/raw/**
+
+# Allow the demo warehouse for Streamlit Cloud
+
+!data/warehouse.duckdb
 warehouse.duckdb
 *.duckdb
 *.parquet
