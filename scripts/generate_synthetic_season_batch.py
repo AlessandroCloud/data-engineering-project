@@ -19,7 +19,14 @@ F1_POINTS = {
 
 
 def _dt_value() -> str:
-    return os.getenv("BATCH_DT") or datetime.now().strftime("%Y-%m-%d_%H%M%S")
+    # preferisci BATCH_DT se passato
+    v = os.getenv("BATCH_DT")
+    if v:
+        return v[:10]  # safety: se arriva "YYYY-MM-DD_...." tronca
+
+    # fallback: solo data (no orari)
+    return datetime.now().strftime("%Y-%m-%d")
+
 
 
 def _read_csv(name: str) -> pl.DataFrame:
@@ -27,15 +34,18 @@ def _read_csv(name: str) -> pl.DataFrame:
     if not p.exists():
         raise FileNotFoundError(f"Missing source CSV: {p}")
 
-    # dataset F1 usa spesso \N per i null
+    n = name.lower().strip()
+
     common_kwargs = dict(
-        try_parse_dates=True,
         infer_schema_length=10000,
         null_values=["\\N"],
+        try_parse_dates=False,   # <-- BLOCCA QUALSIASI DATE PARSING
     )
 
-    # Per results forziamo schema stabile (punti float, varie colonne con null)
-    if name.lower() == "results":
+    # DEBUG TEMPORANEO (lascialo finché non passa la CI)
+    print(f"[DEBUG] read_csv name={n} path={p}")
+
+    if n == "results":
         df = pl.read_csv(
             p,
             **common_kwargs,
@@ -46,7 +56,6 @@ def _read_csv(name: str) -> pl.DataFrame:
                 "fastestLap": pl.Int64,
             },
         )
-        # hardening: cast morbido se qualche colonna arriva come stringa
         return df.with_columns([
             pl.col("points").cast(pl.Float64, strict=False),
             pl.col("milliseconds").cast(pl.Int64, strict=False),
@@ -54,14 +63,29 @@ def _read_csv(name: str) -> pl.DataFrame:
             pl.col("fastestLap").cast(pl.Int64, strict=False),
         ])
 
-    # Per gli altri file: lettura robusta (null_values + infer_schema_length)
+    if n == "races":
+        df = pl.read_csv(
+            p,
+            **common_kwargs,
+            schema_overrides={
+                "raceId": pl.Int64,
+                "year": pl.Int64,
+                "round": pl.Int64,
+                "circuitId": pl.Int64,
+                "date": pl.Utf8,   # <-- stringa, la normalizzi in Silver
+                "time": pl.Utf8,   # <-- stringa, la normalizzi in Silver
+            },
+        )
+        return df.with_columns([
+            pl.col("year").cast(pl.Int64, strict=False),
+            pl.col("round").cast(pl.Int64, strict=False),
+        ])
+
     return pl.read_csv(p, **common_kwargs)
 
-
-
-
 def main() -> None:
-    dt = _dt_value()
+    dt = _dt_value()  # YYYY-MM-DD
+    run_id = os.getenv("BATCH_RUN_ID") or "run=local"
     out_dir = LAKE_RAW / f"dt={dt}"
     out_dir.mkdir(parents=True, exist_ok=True)
 
