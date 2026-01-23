@@ -29,6 +29,13 @@ data/
 warehouse.duckdb
 *.duckdb
 *.parquet
+
+# --- allow Parquet in Data Lake for Fase 2 demo ---
+!data_lake/
+!data_lake/raw/
+!data_lake/raw/**
+!data_lake/raw/**/*.parquet
+
 *.csv
 
 # --- Streamlit ---
