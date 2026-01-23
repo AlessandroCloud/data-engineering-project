@@ -25,7 +25,7 @@ data/bronze/
 data/silver/
 data/gold/
 data/
-data_lake/
+!data_lake/raw/**
 warehouse.duckdb
 *.duckdb
 *.parquet
