@@ -27,12 +27,16 @@ def _read_csv(name: str) -> pl.DataFrame:
     if not p.exists():
         raise FileNotFoundError(f"Missing source CSV: {p}")
 
+    n = name.lower().strip()
+
     common_kwargs = dict(
         infer_schema_length=10000,
         null_values=["\\N"],
+        try_parse_dates=False,   # <-- BLOCCA QUALSIASI DATE PARSING
     )
 
-    n = name.lower()
+    # DEBUG TEMPORANEO (lascialo finché non passa la CI)
+    print(f"[DEBUG] read_csv name={n} path={p}")
 
     if n == "results":
         df = pl.read_csv(
@@ -57,24 +61,20 @@ def _read_csv(name: str) -> pl.DataFrame:
             p,
             **common_kwargs,
             schema_overrides={
+                "raceId": pl.Int64,
                 "year": pl.Int64,
                 "round": pl.Int64,
-                "raceId": pl.Int64,
                 "circuitId": pl.Int64,
+                "date": pl.Utf8,   # <-- stringa, la normalizzi in Silver
+                "time": pl.Utf8,   # <-- stringa, la normalizzi in Silver
             },
         )
-        # date/time le lasciamo stringa: è raw, le normalizzi in Silver
         return df.with_columns([
             pl.col("year").cast(pl.Int64, strict=False),
             pl.col("round").cast(pl.Int64, strict=False),
         ])
 
-    # default per gli altri CSV
     return pl.read_csv(p, **common_kwargs)
-
-
-
-
 
 def main() -> None:
     dt = _dt_value()
