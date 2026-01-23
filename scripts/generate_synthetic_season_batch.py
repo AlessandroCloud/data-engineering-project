@@ -27,31 +27,36 @@ def _read_csv(name: str) -> pl.DataFrame:
     if not p.exists():
         raise FileNotFoundError(f"Missing source CSV: {p}")
 
-    # CSV F1: alcuni campi (es. points) possono essere float (1.5, ecc.)
-    # In CI Polars può inferire i64 e fallire. Qui rendiamo la lettura deterministica.
-    if name == "results":
+    # dataset F1 usa spesso \N per i null
+    common_kwargs = dict(
+        try_parse_dates=True,
+        infer_schema_length=10000,
+        null_values=["\\N"],
+    )
+
+    # Per results forziamo schema stabile (punti float, varie colonne con null)
+    if name.lower() == "results":
         df = pl.read_csv(
             p,
-            try_parse_dates=True,
-            infer_schema_length=10000,
-            null_values=["\\N"],  # <-- IMPORTANTISSIMO per dataset F1
+            **common_kwargs,
             schema_overrides={
                 "points": pl.Float64,
-                # queste colonne hanno spesso \N quindi meglio gestirle
                 "milliseconds": pl.Int64,
                 "rank": pl.Int64,
                 "fastestLap": pl.Int64,
             },
         )
-
-        # hardening: cast morbidi in caso arrivino come stringhe
-        df = df.with_columns([
+        # hardening: cast morbido se qualche colonna arriva come stringa
+        return df.with_columns([
             pl.col("points").cast(pl.Float64, strict=False),
             pl.col("milliseconds").cast(pl.Int64, strict=False),
             pl.col("rank").cast(pl.Int64, strict=False),
             pl.col("fastestLap").cast(pl.Int64, strict=False),
         ])
-        return df
+
+    # Per gli altri file: lettura robusta (null_values + infer_schema_length)
+    return pl.read_csv(p, **common_kwargs)
+
 
 
 
