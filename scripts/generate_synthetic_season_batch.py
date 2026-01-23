@@ -19,7 +19,14 @@ F1_POINTS = {
 
 
 def _dt_value() -> str:
-    return os.getenv("BATCH_DT") or datetime.now().strftime("%Y-%m-%d_%H%M%S")
+    # preferisci BATCH_DT se passato
+    v = os.getenv("BATCH_DT")
+    if v:
+        return v[:10]  # safety: se arriva "YYYY-MM-DD_...." tronca
+
+    # fallback: solo data (no orari)
+    return datetime.now().strftime("%Y-%m-%d")
+
 
 
 def _read_csv(name: str) -> pl.DataFrame:
@@ -77,7 +84,8 @@ def _read_csv(name: str) -> pl.DataFrame:
     return pl.read_csv(p, **common_kwargs)
 
 def main() -> None:
-    dt = _dt_value()
+    dt = _dt_value()  # YYYY-MM-DD
+    run_id = os.getenv("BATCH_RUN_ID") or "run=local"
     out_dir = LAKE_RAW / f"dt={dt}"
     out_dir.mkdir(parents=True, exist_ok=True)
 
