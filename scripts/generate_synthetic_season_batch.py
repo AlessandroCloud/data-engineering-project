@@ -27,15 +27,14 @@ def _read_csv(name: str) -> pl.DataFrame:
     if not p.exists():
         raise FileNotFoundError(f"Missing source CSV: {p}")
 
-    # dataset F1 usa spesso \N per i null
     common_kwargs = dict(
-        try_parse_dates=True,
         infer_schema_length=10000,
         null_values=["\\N"],
     )
 
-    # Per results forziamo schema stabile (punti float, varie colonne con null)
-    if name.lower() == "results":
+    n = name.lower()
+
+    if n == "results":
         df = pl.read_csv(
             p,
             **common_kwargs,
@@ -46,7 +45,6 @@ def _read_csv(name: str) -> pl.DataFrame:
                 "fastestLap": pl.Int64,
             },
         )
-        # hardening: cast morbido se qualche colonna arriva come stringa
         return df.with_columns([
             pl.col("points").cast(pl.Float64, strict=False),
             pl.col("milliseconds").cast(pl.Int64, strict=False),
@@ -54,8 +52,26 @@ def _read_csv(name: str) -> pl.DataFrame:
             pl.col("fastestLap").cast(pl.Int64, strict=False),
         ])
 
-    # Per gli altri file: lettura robusta (null_values + infer_schema_length)
+    if n == "races":
+        df = pl.read_csv(
+            p,
+            **common_kwargs,
+            schema_overrides={
+                "year": pl.Int64,
+                "round": pl.Int64,
+                "raceId": pl.Int64,
+                "circuitId": pl.Int64,
+            },
+        )
+        # date/time le lasciamo stringa: è raw, le normalizzi in Silver
+        return df.with_columns([
+            pl.col("year").cast(pl.Int64, strict=False),
+            pl.col("round").cast(pl.Int64, strict=False),
+        ])
+
+    # default per gli altri CSV
     return pl.read_csv(p, **common_kwargs)
+
 
 
 
