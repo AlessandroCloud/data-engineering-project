@@ -48,7 +48,6 @@ def _connect_ro() -> duckdb.DuckDBPyConnection:
 
 
 def _gold_exists(con: duckdb.DuckDBPyConnection) -> None:
-    # basic sanity: ensure gold schema/tables exist
     tables = con.execute("""
         SELECT table_name
         FROM information_schema.tables
@@ -77,11 +76,16 @@ def _pick_base_year(con: duckdb.DuckDBPyConnection) -> int:
     return int(max_year)
 
 
-def _next_year(con: duckdb.DuckDBPyConnection) -> int:
+def _year_exists(con: duckdb.DuckDBPyConnection, y: int) -> bool:
+    v = con.execute("SELECT COUNT(*) FROM gold.dim_race WHERE year = ?", [y]).fetchone()[0]
+    return int(v) > 0
+
+
+def _next_year_candidate(con: duckdb.DuckDBPyConnection) -> int:
     """
-    New synthetic season year:
-    - It must be >= 2025
-    - And not collide with existing years already in GOLD.
+    Candidate new year:
+    - >= 2025
+    - = max(year)+1
     """
     max_year = con.execute("SELECT MAX(year) FROM gold.dim_race").fetchone()[0]
     max_year = int(max_year) if max_year is not None else 2024
@@ -110,17 +114,27 @@ def main() -> None:
     out_dir = LAKE_RAW / f"dt={dt}"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # deterministic seed per day (same day => same season results)
+    # extra idempotency: if today's batch already has parquet files, skip
+    if (out_dir / "races.parquet").exists() or (out_dir / "results.parquet").exists():
+        print(f"[SKIP] Batch folder already has parquet files: {out_dir}")
+        return
+
+    # deterministic seed per day
     random.seed(dt)
 
     con = _connect_ro()
     _gold_exists(con)
 
     base_year = _pick_base_year(con)
-    new_year = _next_year(con)
+    new_year = _next_year_candidate(con)
 
-    # Read base races from GOLD (schema in gold.dim_race is: raceId, year, round, circuitId, name, date, time, url)
-    # We clone the season structure (same rounds/circuits) and just update ids + year + dates.
+    # idempotency by year: if already present, do not generate
+    if _year_exists(con, new_year):
+        print(f"[SKIP] Synthetic season not generated: year={new_year} already present in GOLD.")
+        con.close()
+        return
+
+    # Read base races from GOLD
     base_races = con.execute(f"""
         SELECT
             raceId,
@@ -137,6 +151,7 @@ def main() -> None:
     """).pl()
 
     if base_races.is_empty():
+        con.close()
         raise ValueError(f"Nessuna gara trovata in gold.dim_race per base_year={base_year}")
 
     # Determine new race IDs
@@ -147,11 +162,9 @@ def main() -> None:
     n_races = len(rounds)
     new_race_ids = list(range(max_race_id + 1, max_race_id + 1 + n_races))
 
-    # Build new races (keep columns compatible with your bronze ingestion expectations)
+    # Build new races
     new_dates = _make_race_dates(new_year, rounds)
 
-    # Normalize name: append (YYYY) if missing, else replace existing (YYYY)
-    # Keep `time` nullable.
     new_races = (
         base_races
         .with_columns([
@@ -167,7 +180,7 @@ def main() -> None:
         .select(["raceId", "year", "round", "circuitId", "name", "date", "time", "url"])
     )
 
-    # Build "entries" from base_year results: pick 20 unique (driverId, constructorId)
+    # Entries from base_year results: pick 20 unique (driverId, constructorId)
     base_race_ids = base_races["raceId"].to_list()
 
     base_entries = con.execute(f"""
@@ -180,6 +193,7 @@ def main() -> None:
 
     entries = base_entries.to_dicts()
     if len(entries) < 20:
+        con.close()
         raise ValueError(
             f"Non ci sono abbastanza entry driver/constructor ({len(entries)}) "
             f"per generare 20 risultati per gara (base_year={base_year})."
@@ -218,7 +232,6 @@ def main() -> None:
                 "rank": None,
                 "fastestLapTime": None,
                 "fastestLapSpeed": None,
-                # statusId 1 usually "Finished"
                 "statusId": 1,
             })
             result_id_counter += 1
