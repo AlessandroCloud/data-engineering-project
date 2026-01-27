@@ -91,6 +91,9 @@ def _insert_aligned(
     for col in target_cols:
         if col == "ingest_dt":
             select_exprs.append(f"'{dt}' AS ingest_dt")
+        elif col == "dt":
+        # dt deve essere SEMPRE la partizione, non quello che arriva dal file
+            select_exprs.append(f"CAST('{dt}' AS DATE) AS dt")
         elif col in file_cols:
             select_exprs.append(f'"{col}"')
         else:

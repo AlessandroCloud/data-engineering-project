@@ -33,12 +33,17 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Set batch env (dt + run id)
+        run: |
+          echo "BATCH_DT=$(date -u +%F)" >> $GITHUB_ENV
+          echo "BATCH_RUN_ID=${{ github.run_id }}-${{ github.run_attempt }}" >> $GITHUB_ENV
+
       - name: Generate synthetic season batch (Data Lake)
         env:
-          BATCH_DT: ${{ github.run_id }}-${{ github.run_attempt }}
           BASE_YEAR: "2020"
         run: |
           python scripts/generate_synthetic_season_batch.py
+
 
       - name: Run Fase 2 pipeline (bronze → silver → gold)
         run: |
