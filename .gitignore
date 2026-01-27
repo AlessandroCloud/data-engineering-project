@@ -24,17 +24,26 @@ data/raw/
 data/bronze/
 data/silver/
 data/gold/
-data/
-!data_lake/raw/**
-warehouse.duckdb
+
+# ignora tutto il contenuto di data...
+data/*
+
+# ...ma TRACCIA il DB usato dalla dashboard e dalla demo
+!data/warehouse.duckdb
+
+# DuckDB e Parquet in generale restano ignorati...
 *.duckdb
 *.parquet
+
+# ...ma NON il nostro warehouse specifico
+!data/warehouse.duckdb
 
 # --- allow Parquet in Data Lake for Fase 2 demo ---
 !data_lake/
 !data_lake/raw/
 !data_lake/raw/**
 !data_lake/raw/**/*.parquet
+
 
 *.csv
 
