@@ -28,7 +28,7 @@ simulare un’architettura di data engineering vicina a uno scenario reale
 
 # Architettura a Layer
 
-L’intero progetto è organizzato secondo un’architettura a layer logici, ispirata ai moderni data platform.
+L’intero progetto è organizzato secondo un’architettura a layer logici, ispirata ai moderni data platform:
 
 Il Bronze layer contiene i dati grezzi ingestiti dalla sorgente, senza trasformazioni logiche rilevanti.
 
@@ -175,6 +175,7 @@ indipendente dalla presenza della componente AI
 La funzionalità Text-to-SQL basata su Google Gemini è opzionale ed è attivata solo se la chiave API è presente nei Secrets.
 
 # Struttura della repository – Dopo Fase 2
+
 data-engineering-project/
 │
 ├── data/
