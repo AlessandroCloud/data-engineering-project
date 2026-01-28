@@ -8,7 +8,7 @@ on:
         required: true
         default: "fase-2"
   schedule:
-    - cron: "0 6 * * *"
+    - cron: "0 6 * * *" # 06:00 UTC ogni giorno
 
 permissions:
   contents: write
@@ -18,10 +18,12 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout (fase-2)
+      # SCHEDULE: github.event.inputs non esiste -> fallback fisso a fase-2
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.branch || 'fase-2' }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.branch || 'fase-2' }}
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -37,35 +39,48 @@ jobs:
         run: |
           echo "BATCH_DT=$(date -u +%F)" >> $GITHUB_ENV
           echo "BATCH_RUN_ID=${{ github.run_id }}-${{ github.run_attempt }}" >> $GITHUB_ENV
+          echo "RUN_BRANCH=${{ github.event_name == 'workflow_dispatch' && github.event.inputs.branch || 'fase-2' }}" >> $GITHUB_ENV
 
       - name: Generate synthetic season batch (Data Lake)
         env:
+          BATCH_DT: ${{ env.BATCH_DT }}
+          BATCH_RUN_ID: ${{ env.BATCH_RUN_ID }}
           BASE_YEAR: "2020"
         run: |
           python scripts/generate_synthetic_season_batch.py
-
 
       - name: Run Fase 2 pipeline (bronze → silver → gold)
         run: |
           python run_fase2_ci.py
 
-      - name: Commit updated warehouse and data lake
+      - name: Commit updated warehouse and today's data lake batch
+        env:
+          BATCH_DT: ${{ env.BATCH_DT }}
+          RUN_BRANCH: ${{ env.RUN_BRANCH }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          
+          # Force-add the DB snapshot (even if ignored)
           git add -f data/warehouse.duckdb
-          git add -f data_lake/raw
 
-          
+          # Force-add ONLY today's batch to avoid committing the whole data lake every time
+          if [ -d "data_lake/raw/dt=${BATCH_DT}" ]; then
+            git add -f "data_lake/raw/dt=${BATCH_DT}"
+          else
+            echo "No batch folder found for dt=${BATCH_DT} (nothing to add for data lake)."
+          fi
+
+          # Debug
           git status
           git diff --staged --stat
 
           if git diff --staged --quiet; then
             echo "No changes to commit"
-          else
-            git commit -m "chore(fase2): scheduled pipeline update"
-            git push
+            exit 0
           fi
 
+          git commit -m "chore(fase2): scheduled pipeline update (dt=${BATCH_DT})"
+
+          # Push explicitly to the same branch that was checked out
+          git push origin "HEAD:${RUN_BRANCH}"
