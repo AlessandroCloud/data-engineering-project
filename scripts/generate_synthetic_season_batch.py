@@ -81,16 +81,24 @@ def _year_exists(con: duckdb.DuckDBPyConnection, y: int) -> bool:
     return int(v) > 0
 
 
-def _next_year_candidate(con: duckdb.DuckDBPyConnection) -> int:
+def _next_free_year(con: duckdb.DuckDBPyConnection) -> int:
     """
-    Candidate new year:
-    - >= 2025
-    - = max(year)+1
+    Trova il prossimo anno libero non presente nel GOLD.
+    Regole:
+    - parte da max(year)+1 (o 2025 se GOLD vuoto / max None)
+    - garantisce >= 2025
+    - se per qualche motivo quell'anno esiste già, incrementa finché trova un buco.
     """
     max_year = con.execute("SELECT MAX(year) FROM gold.dim_race").fetchone()[0]
     max_year = int(max_year) if max_year is not None else 2024
-    candidate = max_year + 1
-    return max(candidate, 2025)
+
+    candidate = max(max_year + 1, 2025)
+
+    # se candidate è già presente (edge case), vai avanti finché trovi un anno libero
+    while _year_exists(con, candidate):
+        candidate += 1
+
+    return candidate
 
 
 def _make_race_dates(new_year: int, rounds: list[int]) -> list[str]:
@@ -99,11 +107,7 @@ def _make_race_dates(new_year: int, rounds: list[int]) -> list[str]:
     Keep it deterministic and valid (string).
     """
     start = date(new_year, 3, 1)
-    out = []
-    for r in rounds:
-        d = start + timedelta(days=(r - 1) * 7)
-        out.append(d.isoformat())
-    return out
+    return [(start + timedelta(days=(r - 1) * 7)).isoformat() for r in rounds]
 
 
 # -------------------------
@@ -114,8 +118,10 @@ def main() -> None:
     out_dir = LAKE_RAW / f"dt={dt}"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # extra idempotency: if today's batch already has parquet files, skip
-    if (out_dir / "races.parquet").exists() or (out_dir / "results.parquet").exists():
+    # Idempotenza per giorno: se i parquet esistono già oggi, non rigenerare
+    races_pq = out_dir / "races.parquet"
+    results_pq = out_dir / "results.parquet"
+    if races_pq.exists() or results_pq.exists():
         print(f"[SKIP] Batch folder already has parquet files: {out_dir}")
         return
 
@@ -126,16 +132,11 @@ def main() -> None:
     _gold_exists(con)
 
     base_year = _pick_base_year(con)
-    new_year = _next_year_candidate(con)
-
-    # idempotency by year: if already present, do not generate
-    if _year_exists(con, new_year):
-        print(f"[SKIP] Synthetic season not generated: year={new_year} already present in GOLD.")
-        con.close()
-        return
+    new_year = _next_free_year(con)
 
     # Read base races from GOLD
-    base_races = con.execute(f"""
+    base_races = con.execute(
+        """
         SELECT
             raceId,
             year,
@@ -146,9 +147,11 @@ def main() -> None:
             time,
             url
         FROM gold.dim_race
-        WHERE year = {base_year}
+        WHERE year = ?
         ORDER BY round
-    """).pl()
+        """,
+        [base_year],
+    ).pl()
 
     if base_races.is_empty():
         con.close()
@@ -183,6 +186,7 @@ def main() -> None:
     # Entries from base_year results: pick 20 unique (driverId, constructorId)
     base_race_ids = base_races["raceId"].to_list()
 
+    # (IN con lista di interi è ok qui, sono ID dal DB, non input utente)
     base_entries = con.execute(f"""
         SELECT DISTINCT
             driverId,
@@ -213,7 +217,6 @@ def main() -> None:
 
         for pos, entry in enumerate(shuffled, start=1):
             points = float(F1_POINTS.get(pos, 0))
-
             new_results_rows.append({
                 "resultId": result_id_counter,
                 "raceId": int(race_id),
@@ -241,8 +244,8 @@ def main() -> None:
     new_results = pl.DataFrame(new_results_rows)
 
     # Write batch parquet files
-    new_races.write_parquet(out_dir / "races.parquet")
-    new_results.write_parquet(out_dir / "results.parquet")
+    new_races.write_parquet(races_pq)
+    new_results.write_parquet(results_pq)
 
     print(f"[OK] Synthetic season generated: new_year={new_year} cloned_from={base_year}")
     print(f"[OK] Data Lake batch: {out_dir}")
